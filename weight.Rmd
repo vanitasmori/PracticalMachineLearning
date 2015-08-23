@@ -1,0 +1,81 @@
+---
+title: "Weight Lifting Manner Prediction Model"
+author: "vanitas"
+date: "Thursday, August 20, 2015"
+output: html_document
+---
+In this project, the given data is from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+
+The goal of this project is to predict the manner in which they did the exercise, using the "classe" variable (from "A" to "E") as outcome, and any of the other variables as predictors (or component parts of predictors). 
+
+This report will describe the data processing, the predictor choice, the model building, type of cross validation, the expected out of sample error. 
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. (see the section on the Weight Lifting Exercise Dataset). 
+
+### Getting and Cleaning Data
+
+First, download datasets from given links so as to read data into R locally later.
+
+Load from library necessary R packages. In order to accelerate the expectedly time-consuming training process, doParallel package is installed and loaded too.
+
+It is noteworthy that there are "NA"s and empty values in the pml-training dataset. Both cases are considered missing values. For the sake of convenience, the argument "na.strings" are set to be c("NA", "") when read data into R.
+
+```{r getting data, echo=TRUE, message=FALSE, cache=TRUE}
+library(caret); library(randomForest)
+library(doParallel); registerDoParallel(cores=2)
+train <- read.table("pml-training.csv/.", header = TRUE, sep = ",", na.strings=c("NA", ""),
+                       check.names = FALSE, stringsAsFactors = FALSE)
+dim(train)
+``` 
+
+Since predictor variables need to be strictly numeric for data training purpose, it is imperative to 1) remove variables serving as identifiers, namely col1 to col7; 2)assign value 0 to all the "NA"s in the dataset, and remove all variables with majority of values near zero.
+
+Slice the remaining fully informative dataframe into a training set(70%) and a testing set(30%).
+```{r imputation and data slicing, echo=TRUE, cache=TRUE}
+dim(train)
+names(train)
+train1 <- train[ ,-(1:7)]
+train1[is.na(train1)] <- 0 
+nsv <- nearZeroVar(train1, saveMetrics=T)
+nzv <- which(nsv$nzv=="TRUE", arr.ind=T)
+train2 <- subset(train1, select=-nzv)
+dim(train2)
+inTrain <- createDataPartition(y=train2$classe, p=0.7, list=F)
+training <- train2[inTrain, ]
+testing <- train2[-inTrain, ]
+```
+
+### Model Building
+
+- apply "principle component analysis" method to reduce the number of predictors from 52 to 12, in data preprocessing phase;
+```{r preprocessing, cache=TRUE}
+preP <- preProcess(training[ ,-53], method="pca", thresh=0.8, data=training)
+trainPCA <- predict(preP, training[ ,-53])
+preP
+```
+
+- train the preprocessed dataset with "random forest" machine learning algorithm, resulting in a prediction model with 4.16% OOB error rate.
+```{r modeling, cache=TRUE}
+mpca.rf <- randomForest(factor(training$classe) ~ ., data=trainPCA, importance=T, proximity=T)
+print(mpca.rf)
+```
+
+- apply the model to the testing set, and get over 95% accuracy rate.
+```{r testing, cache=TRUE}
+testPCA <- predict(preP, testing[ ,-53])
+confusionMatrix(testing$classe, predict(mpca.rf, newdata=testPCA))
+```
+
+
+### Submission
+
+Download pml-testing dataset and calculate the result as output for submission.
+```{r output, cache=TRUE}
+testsub <- read.table("pml-testing.csv/.", header = TRUE, sep = ",", na.strings=c("NA", ""),
+                       check.names = FALSE, stringsAsFactors = FALSE)
+tests <- subset(testsub[ , -(1:7)], select=-nzv)
+testsPCA <- predict(preP, tests[ ,-53])
+result <- predict(mpca.rf, newdata=testsPCA)
+answers <- as.character(result)
+answers
+```
